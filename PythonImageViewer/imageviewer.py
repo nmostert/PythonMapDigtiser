@@ -1,190 +1,256 @@
-import tkinter as tk            # ウィンドウ作成用
-from tkinter import filedialog  # ファイルを開くダイアログ用
-from PIL import Image, ImageTk  # 画像データ用
-import math                     # 回転の計算用
-import numpy as np              # アフィン変換行列演算用
-import os                       # ディレクトリ操作用
+import tkinter as tk            # Used to create a window
+from tkinter import filedialog  # Used for opening file dialog
+from PIL import Image, ImageTk  # Used for handling image data
+import math                     # Used for calculating rotation
+import numpy as np              # Used for affine transform matrix operations
+import os                       # Used for directory operations
+import platform
 
 class Application(tk.Frame):
     def __init__(self, master=None):
         super().__init__(master)
 
-        self.master.geometry("600x400") 
- 
-        self.pil_image = None   # 表示する画像データ
+        self.master.geometry("600x400")
+
+        self.pil_image = None   # Image data to be displayed
         self.my_title = "Python Image Viewer"
 
-        # ウィンドウの設定
+        # Window settings
         self.master.title(self.my_title)
- 
-        # 実行内容
-        self.create_menu()   # メニューの作成
-        self.create_widget() # ウィジェットの作成
 
-        # 初期アフィン変換行列
+        # Execution content
+        self.create_menu()   # Create a menu
+        self.create_widget()    # Create a widget
+
+        # Initial affine transformation matrix
         self.reset_transform()
 
     def menu_open_clicked(self, event=None):
-        # ファイル→開く
+        # File -> Open
         filename = tk.filedialog.askopenfilename(
-            filetypes = [("Image file", ".bmp .png .jpg .tif"), ("Bitmap", ".bmp"), ("PNG", ".png"), ("JPEG", ".jpg"), ("Tiff", ".tif") ], # ファイルフィルタ
-            initialdir = os.getcwd() # カレントディレクトリ
+            filetypes=[("Image file", ".bmp .png .jpg .tif"),
+                       ("Bitmap", ".bmp"),
+                       ("PNG", ".png"),
+                       ("JPEG", ".jpg"),
+                       ("Tiff", ".tif")],
+            # set the filter for file types that can be selected,
+            # including image files such as BMP, PNG, JPG, and TIF
+            initialdir=os.getcwd()
+            # set the initial directory of the file dialog window
+            # to the current working directory
             )
 
-        # 画像ファイルを設定する
+        # Set the image file
         self.set_image(filename)
 
     def menu_quit_clicked(self):
-        # ウィンドウを閉じる
-        self.master.destroy() 
+        # Close the window
+        self.master.destroy()
 
-    # create_menuメソッドを定義
+    # Define the create_menu method
     def create_menu(self):
-        self.menu_bar = tk.Menu(self) # Menuクラスからmenu_barインスタンスを生成
- 
-        self.file_menu = tk.Menu(self.menu_bar, tearoff = tk.OFF)
+        # Generate an instance named menu_bar from the Menu class
+        self.menu_bar = tk.Menu(self)
+        self.file_menu = tk.Menu(self.menu_bar, tearoff=tk.OFF)
         self.menu_bar.add_cascade(label="File", menu=self.file_menu)
 
-        self.file_menu.add_command(label="Open", command = self.menu_open_clicked, accelerator="Ctrl+O")
-        self.file_menu.add_separator() # セパレーターを追加
-        self.file_menu.add_command(label="Exit", command = self.menu_quit_clicked)
+        self.file_menu.add_command(label="Open",
+                                   command=self.menu_open_clicked,
+                                   accelerator="Ctrl+O")
+        self.file_menu.add_separator()  # Add a separator
+        self.file_menu.add_command(label="Exit",
+                                   command=self.menu_quit_clicked)
 
-        self.menu_bar.bind_all("<Control-o>", self.menu_open_clicked) # ファイルを開くのショートカット(Ctrol-Oボタン)
+        # Shortcut (Ctrol-O button) to open a file
+        self.menu_bar.bind_all("<Control-o>", self.menu_open_clicked)
+        self.master.config(menu=self.menu_bar)  # Place the menu bar
 
-        self.master.config(menu=self.menu_bar) # メニューバーの配置
- 
-    # create_widgetメソッドを定義
+    # Define the create_widget method
     def create_widget(self):
-
-        # ステータスバー相当(親に追加)
-        frame_statusbar = tk.Frame(self.master, bd=1, relief = tk.SUNKEN)
-        self.label_image_info = tk.Label(frame_statusbar, text="image info", anchor=tk.E, padx = 5)
-        self.label_image_pixel = tk.Label(frame_statusbar, text="(x, y)", anchor=tk.W, padx = 5)
+        # Status bar (added to parent)
+        frame_statusbar = tk.Frame(self.master, bd=1, relief=tk.SUNKEN)
+        self.label_image_info = \
+            tk.Label(frame_statusbar, text="image info",
+                     anchor=tk.E, padx=5)
+        self.label_image_pixel = tk.Label(frame_statusbar,
+                                          text="(x, y)", anchor=tk.W, padx=5)
         self.label_image_info.pack(side=tk.RIGHT)
         self.label_image_pixel.pack(side=tk.LEFT)
         frame_statusbar.pack(side=tk.BOTTOM, fill=tk.X)
 
         # Canvas
         self.canvas = tk.Canvas(self.master, background="black")
-        self.canvas.pack(expand=True,  fill=tk.BOTH)  # この両方でDock.Fillと同じ
+        # equivalent to Dock.Fill in Windows Forms
+        self.canvas.pack(expand=True, fill=tk.BOTH)
 
-        # マウスイベント
-        self.master.bind("<Button-1>", self.mouse_down_left)                   # MouseDown
-        self.master.bind("<B1-Motion>", self.mouse_move_left)                  # MouseDrag（ボタンを押しながら移動）
-        self.master.bind("<Motion>", self.mouse_move)                          # MouseMove
-        self.master.bind("<Double-Button-1>", self.mouse_double_click_left)    # MouseDoubleClick
-        self.master.bind("<MouseWheel>", self.mouse_wheel)                     # MouseWheel
+        # Mouse events
+        # ============
+
+        # MouseDown
+        self.master.bind("<Button-1>", self.mouse_down_left)
+
+        # MouseDrag (moving while pressing button)
+        self.master.bind("<B1-Motion>", self.mouse_move_left)
+
+        # MouseMove
+        self.master.bind("<Motion>", self.mouse_move)
+
+        # MouseDoubleClick
+        self.master.bind("<Double-Button-1>", self.mouse_double_click_left)
+
+        # MouseWheel
+        # self.master.bind("<MouseWheel>", self.mouse_wheel)
+        # Adding linux support
+        if platform.system() == "Linux":
+            self.master.bind("<Button-4>", self.mouse_wheel_linux)
+            self.master.bind("<Button-5>", self.mouse_wheel_linux)
+        else:
+            self.master.bind("<MouseWheel>", self.mouse_wheel)
 
     def set_image(self, filename):
-        ''' 画像ファイルを開く '''
+        '''Open an image file'''
         if not filename:
             return
-        # PIL.Imageで開く
+
+        # Open the file using PIL.Image
         self.pil_image = Image.open(filename)
-        # 画像全体に表示するようにアフィン変換行列を設定
+
+        # Set the affine transformation matrix to fit the entire image
         self.zoom_fit(self.pil_image.width, self.pil_image.height)
-        # 画像の表示
+
+        # Display the image
         self.draw_image(self.pil_image)
 
-        # ウィンドウタイトルのファイル名を設定
-        self.master.title(self.my_title + " - " + os.path.basename(filename))
-        # ステータスバーに画像情報を表示する
-        self.label_image_info["text"] = f"{self.pil_image.format} : {self.pil_image.width} x {self.pil_image.height} {self.pil_image.mode}"
-        # カレントディレクトリの設定
+        # Set the window title to the filename
+        self.master.title(f"{self.my_title} - {os.path.basename(filename)}")
+
+        # Display image information in the status bar
+        self.label_image_info["text"] = \
+            f"{self.pil_image.format} : {self.pil_image.width} x"\
+            "{self.pil_image.height} {self.pil_image.mode}"
+
+        # Set the current directory
         os.chdir(os.path.dirname(filename))
 
-    # -------------------------------------------------------------------------------
-    # マウスイベント
-    # -------------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
+    # Mouse events
+    # -------------------------------------------------------------------------
+
     def mouse_down_left(self, event):
-        ''' マウスの左ボタンを押した '''
+        ''' Left button down event '''
         self.__old_event = event
 
     def mouse_move_left(self, event):
-        ''' マウスの左ボタンをドラッグ '''
-        if (self.pil_image == None):
+        ''' Left button drag event '''
+        if self.pil_image is None:
             return
-        self.translate(event.x - self.__old_event.x, event.y - self.__old_event.y)
-        self.redraw_image() # 再描画
+        self.translate(event.x - self.__old_event.x,
+                       event.y - self.__old_event.y)
+        self.redraw_image()  # Redraw image
         self.__old_event = event
 
     def mouse_move(self, event):
-        ''' マウスの左ボタンをドラッグ '''
-        if (self.pil_image == None):
+        ''' Mouse move event '''
+        if self.pil_image is None:
             return
-        
+
         image_point = self.to_image_point(event.x, event.y)
         if image_point != []:
-            self.label_image_pixel["text"] = (f"({image_point[0]:.2f}, {image_point[1]:.2f})")
+            self.label_image_pixel["text"] = \
+                f"({image_point[0]:.2f}, {image_point[1]:.2f})"
         else:
-            self.label_image_pixel["text"] = ("(--, --)")
-
+            self.label_image_pixel["text"] = "(--, --)"
 
     def mouse_double_click_left(self, event):
-        ''' マウスの左ボタンをダブルクリック '''
-        if self.pil_image == None:
+        ''' Double click left button event '''
+        if self.pil_image is None:
             return
         self.zoom_fit(self.pil_image.width, self.pil_image.height)
-        self.redraw_image() # 再描画
+        self.redraw_image()  # Redraw image
 
     def mouse_wheel(self, event):
-        ''' マウスホイールを回した '''
-        if self.pil_image == None:
+        '''
+        Mouse wheel event for Windows
+        Not tested for OSX
+        '''
+        if self.pil_image is None:
             return
-
-        if event.state != 9: # 9はShiftキー(Windowsの場合だけかも？)
-            if (event.delta < 0):
-                # 下に回転の場合、拡大
+        if event.state != 9:  # 9 is the Shift key in Windows
+            if event.delta < 0:
+                # Zoom in on rotation down
                 self.scale_at(1.25, event.x, event.y)
             else:
-                # 上に回転の場合、縮小
+                # Zoom out on rotation up
                 self.scale_at(0.8, event.x, event.y)
         else:
-            if (event.delta < 0):
-                # 下に回転の場合、反時計回り
+            if event.delta < 0:
+                # Rotate counterclockwise on rotation down
                 self.rotate_at(-5, event.x, event.y)
             else:
-                # 上に回転の場合、時計回り
-                self.rotate_at(5, event.x, event.y)     
-        self.redraw_image() # 再描画
-        
-    # -------------------------------------------------------------------------------
-    # 画像表示用アフィン変換
-    # -------------------------------------------------------------------------------
+                # Rotate clockwise on rotation up
+                self.rotate_at(5, event.x, event.y)
+        self.redraw_image()  # Redraw image
+
+    def mouse_wheel_linux(self, event):
+        ''' Mouse wheel event for Linux (X11 based)'''
+        if self.pil_image is None:
+            return
+        if event.state != 17:  # 17 is the Shift key for X11
+            if event.num == 5:
+                # Zoom in on rotation down
+                self.scale_at(1.25, event.x, event.y)
+            else:  # event.num 4 is up
+                # Zoom out on rotation up
+                self.scale_at(0.8, event.x, event.y)
+        else:
+            if event.num == 5:
+                # Rotate counterclockwise on rotation down
+                self.rotate_at(-5, event.x, event.y)
+            else:
+                # Rotate clockwise on rotation up
+                self.rotate_at(5, event.x, event.y)
+        self.redraw_image()  # Redraw image
+
+    # -------------------------------------------------------------------------
+    # Affine transformation for image display
+    # -------------------------------------------------------------------------
 
     def reset_transform(self):
-        '''アフィン変換を初期化（スケール１、移動なし）に戻す'''
-        self.mat_affine = np.eye(3) # 3x3の単位行列
+        """
+        Reset the affine transformation to its initial state
+        (scale 1, no translation).
+        """
+        self.mat_affine = np.eye(3)
 
     def translate(self, offset_x, offset_y):
-        ''' 平行移動 '''
-        mat = np.eye(3) # 3x3の単位行列
+        """Translate."""
+        mat = np.eye(3)
         mat[0, 2] = float(offset_x)
         mat[1, 2] = float(offset_y)
 
         self.mat_affine = np.dot(mat, self.mat_affine)
 
-    def scale(self, scale:float):
-        ''' 拡大縮小 '''
-        mat = np.eye(3) # 単位行列
+    def scale(self, scale: float):
+        """Scale."""
+        mat = np.eye(3)
         mat[0, 0] = scale
         mat[1, 1] = scale
 
         self.mat_affine = np.dot(mat, self.mat_affine)
 
-    def scale_at(self, scale:float, cx:float, cy:float):
-        ''' 座標(cx, cy)を中心に拡大縮小 '''
+    def scale_at(self, scale: float, cx: float, cy: float):
+        """Scale around the point (cx, cy)."""
 
-        # 原点へ移動
+        # Move to the origin
         self.translate(-cx, -cy)
-        # 拡大縮小
+        # Scale
         self.scale(scale)
-        # 元に戻す
+        # Move back
         self.translate(cx, cy)
 
-    def rotate(self, deg:float):
-        ''' 回転 '''
-        mat = np.eye(3) # 単位行列
+    def rotate(self, deg: float):
+        """Rotate."""
+        mat = np.eye(3)
         mat[0, 0] = math.cos(math.pi * deg / 180)
         mat[1, 0] = math.sin(math.pi * deg / 180)
         mat[0, 1] = -mat[1, 0]
@@ -192,27 +258,28 @@ class Application(tk.Frame):
 
         self.mat_affine = np.dot(mat, self.mat_affine)
 
-    def rotate_at(self, deg:float, cx:float, cy:float):
-        ''' 座標(cx, cy)を中心に回転 '''
+    def rotate_at(self, deg: float, cx: float, cy: float):
+        """Rotate around the point (cx, cy)."""
 
-        # 原点へ移動
+        # Move to the origin
         self.translate(-cx, -cy)
-        # 回転
+        # Rotate
         self.rotate(deg)
-        # 元に戻す
+        # Move back
         self.translate(cx, cy)
 
     def zoom_fit(self, image_width, image_height):
-        '''画像をウィジェット全体に表示させる'''
+        """Display the image in the widget."""
 
-        # キャンバスのサイズ
+        # Get the size of the canvas
         canvas_width = self.canvas.winfo_width()
         canvas_height = self.canvas.winfo_height()
 
-        if (image_width * image_height <= 0) or (canvas_width * canvas_height <= 0):
+        if (image_width * image_height <= 0) or \
+                (canvas_width * canvas_height <= 0):
             return
 
-        # アフィン変換の初期化
+        # Initialize the affine transformation
         self.reset_transform()
 
         scale = 1.0
@@ -220,80 +287,86 @@ class Application(tk.Frame):
         offsety = 0.0
 
         if (canvas_width * image_height) > (image_width * canvas_height):
-            # ウィジェットが横長（画像を縦に合わせる）
+            # The widget is wider than the image (fit the image vertically)
             scale = canvas_height / image_height
-            # あまり部分の半分を中央に寄せる
+            # Center the image horizontally
             offsetx = (canvas_width - image_width * scale) / 2
         else:
-            # ウィジェットが縦長（画像を横に合わせる）
+            # The widget is taller than the image (fit the image horizontally)
             scale = canvas_width / image_width
-            # あまり部分の半分を中央に寄せる
+            # Center the image vertically
             offsety = (canvas_height - image_height * scale) / 2
 
-        # 拡大縮小
+        # Scale
         self.scale(scale)
-        # あまり部分を中央に寄せる
+        # Center the image
         self.translate(offsetx, offsety)
 
     def to_image_point(self, x, y):
-        '''　キャンバスの座標から画像の座標へ変更 '''
-        if self.pil_image == None:
+        """Convert the canvas coordinates to the image coordinates."""
+        if self.pil_image is None:
             return []
-        # 画像→キャンバスの変換からキャンバス→画像にする（逆行列にする）
+        # Convert from canvas coordinates to image coordinates
+        # (inverse of the affine transformation)
         mat_inv = np.linalg.inv(self.mat_affine)
         image_point = np.dot(mat_inv, (x, y, 1.))
-        if  image_point[0] < 0 or image_point[1] < 0 or image_point[0] > self.pil_image.width or image_point[1] > self.pil_image.height:
+        if image_point[0] < 0 or image_point[1] < 0 or \
+                image_point[0] > self.pil_image.width or \
+                image_point[1] > self.pil_image.height:
             return []
 
         return image_point
 
-    # -------------------------------------------------------------------------------
-    # 描画
-    # -------------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
+    # Drawing
+    # --------------------------------------------------------------------------
 
     def draw_image(self, pil_image):
-        
-        if pil_image == None:
+        """Draw the image on the canvas."""
+
+        if pil_image is None:
             return
 
         self.pil_image = pil_image
 
-        # キャンバスのサイズ
+        # Get the size of the canvas
         canvas_width = self.canvas.winfo_width()
         canvas_height = self.canvas.winfo_height()
 
-        # キャンバスから画像データへのアフィン変換行列を求める
-        #（表示用アフィン変換行列の逆行列を求める）
+        # Compute the affine transformation matrix from the canvas to the image
+        # (by taking the inverse of the affine transformation matrix
+        # from the image to the canvas)
         mat_inv = np.linalg.inv(self.mat_affine)
 
-        # numpy arrayをアフィン変換用のタプルに変換
+        # Convert the numpy array to a tuple for the affine transformation
         affine_inv = (
             mat_inv[0, 0], mat_inv[0, 1], mat_inv[0, 2],
             mat_inv[1, 0], mat_inv[1, 1], mat_inv[1, 2]
-            )
+        )
 
-        # PILの画像データをアフィン変換する
+        # Apply the affine transformation to the PIL image data
         dst = self.pil_image.transform(
-                    (canvas_width, canvas_height),# 出力サイズ
-                    Image.AFFINE,   # アフィン変換
-                    affine_inv,     # アフィン変換行列（出力→入力への変換行列）
-                    Image.NEAREST   # 補間方法、ニアレストネイバー     
-                    )
+            (canvas_width, canvas_height),  # Output size
+            Image.AFFINE,  # Affine transformation
+            affine_inv,  # Affine transformation matrix (from output to input)
+            Image.NEAREST  # Interpolation method (nearest neighbor)
+        )
 
+        # Create a PhotoImage object from the transformed image
         im = ImageTk.PhotoImage(image=dst)
 
-        # 画像の描画
+        # Draw the image on the canvas
         item = self.canvas.create_image(
-                0, 0,           # 画像表示位置(左上の座標)
-                anchor='nw',    # アンカー、左上が原点
-                image=im        # 表示画像データ
-                )
+            0, 0,  # Image display position (upper-left corner coordinates)
+            anchor='nw',  # Anchor, with the upper-left corner as the origin
+            image=im  # Image data to be displayed
+        )
 
         self.image = im
 
     def redraw_image(self):
-        ''' 画像の再描画 '''
-        if self.pil_image == None:
+        """Redraw the image on the canvas."""
+        if self.pil_image is None:
             return
         self.draw_image(self.pil_image)
 
