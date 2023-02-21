@@ -1,10 +1,12 @@
 import tkinter as tk            # Used to create a window
-from tkinter import filedialog  # Used for opening file dialog
+from tkinter import filedialog
+from tkinter import simpledialog
 from PIL import Image, ImageTk  # Used for handling image data
 import math                     # Used for calculating rotation
 import numpy as np              # Used for affine transform matrix operations
 import os                       # Used for directory operations
-import platform
+import platform                 # Used for cross-platform support
+
 
 class Application(tk.Frame):
     def __init__(self, master=None):
@@ -13,7 +15,8 @@ class Application(tk.Frame):
         self.master.geometry("600x400")
 
         self.pil_image = None   # Image data to be displayed
-        self.my_title = "Python Image Viewer"
+        self.filename = None
+        self.my_title = "Python Map Digitiser"
 
         # Window settings
         self.master.title(self.my_title)
@@ -24,6 +27,13 @@ class Application(tk.Frame):
 
         # Initial affine transformation matrix
         self.reset_transform()
+
+        # Drag flag for distinguishing a drag from a click
+        self.drag_flag = False
+        self.points_list = []
+        self.dpi = None
+        self.mpi = None
+        self.map_scale = None
 
     def menu_open_clicked(self, event=None):
         # File -> Open
@@ -41,7 +51,57 @@ class Application(tk.Frame):
             )
 
         # Set the image file
-        self.set_image(filename)
+        self.filename = filename
+        self.set_image()
+
+    def menu_set_scale_clicked(self, event=None):
+        if self.pil_image is None:
+            tk.messagebox.showwarning(
+                    title="Holup",
+                    message="You need to open an image file first."
+                    )
+            return
+        self.dpi = self.pil_image.info['dpi']
+        if self.dpi == (0, 0):
+            self.dpi = simpledialog.askstring(
+                    "Scale",
+                    "Image DPI not found.\nPlease enter DPI:",
+                    parent=self.master
+                    )
+            if self.dpi is None:
+                return
+        else:
+            self.dpi = self.dpi[0]
+        self.map_scale = simpledialog.askstring(
+                "Set Map Scale",
+                "Enter Map Scale (in Chains Per Inch):",
+                parent=self.master
+                )
+        if self.map_scale is not None:
+            print(self.map_scale)
+            self.mpi = float(self.map_scale) * 20.1168
+            print(self.dpi, self.mpi, self.map_scale)
+
+    def menu_export_clicked(self, event=None):
+        # File -> Export Points
+        if self.dpi is None or self.map_scale is None or self.mpi is None:
+            tk.messagebox.showwarning(
+                    title="Holup",
+                    message="You need to set the scale information first."
+                    )
+            return
+        export_filename = self.filename.split('.')[0] + '.georef'
+        response = tk.messagebox.askquestion(
+                    title=None,
+                    message=f"Export points file as\n{export_filename}?"
+                )
+        if response == "yes":
+            with open(export_filename, mode='wt', encoding='utf-8') as exfile:
+                exfile.write("dpi, mpi, scale\n")
+                exfile.write(f"{self.dpi}, {self.mpi}, {self.map_scale}\n")
+                exfile.write("Px, Py, Name\n")
+                exfile.write('\n'.join(self.points_list))
+                exfile.write('\n')
 
     def menu_quit_clicked(self):
         # Close the window
@@ -57,12 +117,26 @@ class Application(tk.Frame):
         self.file_menu.add_command(label="Open",
                                    command=self.menu_open_clicked,
                                    accelerator="Ctrl+O")
+        self.file_menu.add_command(label="Set Scale",
+                                   command=self.menu_set_scale_clicked,
+                                   accelerator="Ctrl+T")
+        self.file_menu.add_command(label="Export Points",
+                                   command=self.menu_export_clicked,
+                                   accelerator="Ctrl+E")
         self.file_menu.add_separator()  # Add a separator
         self.file_menu.add_command(label="Exit",
                                    command=self.menu_quit_clicked)
 
-        # Shortcut (Ctrol-O button) to open a file
+        # Shortcut (Ctrl-O button) to open a file
         self.menu_bar.bind_all("<Control-o>", self.menu_open_clicked)
+        self.master.config(menu=self.menu_bar)  # Place the menu bar
+
+        # Shortcut (Ctrl-E button) to export points file
+        self.menu_bar.bind_all("<Control-e>", self.menu_export_clicked)
+        self.master.config(menu=self.menu_bar)  # Place the menu bar
+
+        # Shortcut (Ctrl-T button) to export points file
+        self.menu_bar.bind_all("<Control-t>", self.menu_set_scale_clicked)
         self.master.config(menu=self.menu_bar)  # Place the menu bar
 
     # Define the create_widget method
@@ -89,14 +163,20 @@ class Application(tk.Frame):
         # MouseDown
         self.master.bind("<Button-1>", self.mouse_down_left)
 
+        # MouseDoubleClick
+        self.master.bind("<Double-Button-1>", self.mouse_double_click_left)
+
+        # MouseRelease
+        self.master.bind("<ButtonRelease-1>", self.mouse_release_left)
+
+        # RightMouseRelease
+        self.master.bind("<ButtonRelease-3>", self.mouse_release_right)
+
         # MouseDrag (moving while pressing button)
         self.master.bind("<B1-Motion>", self.mouse_move_left)
 
         # MouseMove
         self.master.bind("<Motion>", self.mouse_move)
-
-        # MouseDoubleClick
-        self.master.bind("<Double-Button-1>", self.mouse_double_click_left)
 
         # MouseWheel
         # self.master.bind("<MouseWheel>", self.mouse_wheel)
@@ -107,13 +187,13 @@ class Application(tk.Frame):
         else:
             self.master.bind("<MouseWheel>", self.mouse_wheel)
 
-    def set_image(self, filename):
+    def set_image(self):
         '''Open an image file'''
-        if not filename:
+        if not self.filename:
             return
 
         # Open the file using PIL.Image
-        self.pil_image = Image.open(filename)
+        self.pil_image = Image.open(self.filename)
 
         # Set the affine transformation matrix to fit the entire image
         self.zoom_fit(self.pil_image.width, self.pil_image.height)
@@ -122,15 +202,23 @@ class Application(tk.Frame):
         self.draw_image(self.pil_image)
 
         # Set the window title to the filename
-        self.master.title(f"{self.my_title} - {os.path.basename(filename)}")
+        self.master.title(
+                f"{self.my_title} - {os.path.basename(self.filename)}"
+                )
 
         # Display image information in the status bar
         self.label_image_info["text"] = \
             f"{self.pil_image.format} : {self.pil_image.width} x"\
-            "{self.pil_image.height} {self.pil_image.mode}"
+            f"{self.pil_image.height} {self.pil_image.mode}"
 
         # Set the current directory
-        os.chdir(os.path.dirname(filename))
+        os.chdir(os.path.dirname(self.filename))
+
+        # Display image metadata dialogue
+
+    def export_points(self):
+        print("export!")
+        print(self.points_list)
 
     # -------------------------------------------------------------------------
     # Mouse events
@@ -140,10 +228,33 @@ class Application(tk.Frame):
         ''' Left button down event '''
         self.__old_event = event
 
+    def mouse_release_left(self, event):
+        ''' Left button release event '''
+        if self.drag_flag:
+            self.drag_flag = False
+            return
+        print("click!")
+        self.__old_event = event
+        self.drag_flag = False
+
+    def mouse_release_right(self, event):
+        ''' Right button release event '''
+        image_point = self.to_image_point(event.x, event.y)
+        if image_point != []:
+            title = f"Add point ({image_point[0]:.0f}, {image_point[1]:.0f})?"
+        point_name = simpledialog.askstring(title, "Point name (optional)",
+                                            parent=self.master)
+        if point_name is not None:
+            self.points_list += \
+                [f"{image_point[0]:.0f}, {image_point[1]:.0f}, {point_name}"]
+            print(self.points_list)
+        self.__old_event = event
+
     def mouse_move_left(self, event):
         ''' Left button drag event '''
         if self.pil_image is None:
             return
+        self.drag_flag = True
         self.translate(event.x - self.__old_event.x,
                        event.y - self.__old_event.y)
         self.redraw_image()  # Redraw image
@@ -163,6 +274,7 @@ class Application(tk.Frame):
 
     def mouse_double_click_left(self, event):
         ''' Double click left button event '''
+        self.double_click_flag = True
         if self.pil_image is None:
             return
         self.zoom_fit(self.pil_image.width, self.pil_image.height)
@@ -197,11 +309,11 @@ class Application(tk.Frame):
             return
         if event.state != 17:  # 17 is the Shift key for X11
             if event.num == 5:
-                # Zoom in on rotation down
-                self.scale_at(1.25, event.x, event.y)
-            else:  # event.num 4 is up
-                # Zoom out on rotation up
+                # Zoom out on rotation down
                 self.scale_at(0.8, event.x, event.y)
+            else:  # event.num 4 is up
+                # Zoom in on rotation up
+                self.scale_at(1.25, event.x, event.y)
         else:
             if event.num == 5:
                 # Rotate counterclockwise on rotation down
