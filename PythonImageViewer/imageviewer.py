@@ -1,7 +1,7 @@
 import tkinter as tk            # Used to create a window
 from tkinter import filedialog
 from tkinter import simpledialog
-from PIL import Image, ImageTk  # Used for handling image data
+from PIL import Image, ImageTk, ImageDraw
 import math                     # Used for calculating rotation
 import numpy as np              # Used for affine transform matrix operations
 import os                       # Used for directory operations
@@ -14,7 +14,9 @@ class Application(tk.Frame):
 
         self.master.geometry("600x400")
 
-        self.pil_image = None   # Image data to be displayed
+        self.pil_image = None
+        self.bg_image = None
+        self.points_image = None
         self.filename = None
         self.my_title = "Python Map Digitiser"
 
@@ -34,6 +36,7 @@ class Application(tk.Frame):
         self.dpi = None
         self.mpi = None
         self.map_scale = None
+        self.triangle_radius = None  # I know
 
     def menu_open_clicked(self, event=None):
         # File -> Open
@@ -193,7 +196,19 @@ class Application(tk.Frame):
             return
 
         # Open the file using PIL.Image
-        self.pil_image = Image.open(self.filename)
+        self.bg_image = Image.open(self.filename).convert("RGBA")
+        # Create the overlay image for drawing points
+        self.points_image = Image.new(
+                "RGBA",
+                (self.bg_image.width, self.bg_image.height),
+                (0, 0, 0, 0),
+                )
+
+        self.triangle_radius = max(5, self.bg_image.width/500)
+
+        self.pil_image = Image.alpha_composite(
+                self.bg_image,
+                self.points_image)
 
         # Set the affine transformation matrix to fit the entire image
         self.zoom_fit(self.pil_image.width, self.pil_image.height)
@@ -214,7 +229,15 @@ class Application(tk.Frame):
         # Set the current directory
         os.chdir(os.path.dirname(self.filename))
 
-        # Display image metadata dialogue
+    def draw_point(self, x, y):
+        draw = ImageDraw.Draw(self.points_image)
+        draw.regular_polygon(
+                (x, y, self.triangle_radius),
+                3,
+                rotation=0,
+                fill=(0, 0, 255, 185),
+                outline="white",
+                )
 
     def export_points(self):
         print("export!")
@@ -233,14 +256,19 @@ class Application(tk.Frame):
         if self.drag_flag:
             self.drag_flag = False
             return
-        print("click!")
         self.__old_event = event
         self.drag_flag = False
 
     def mouse_release_right(self, event):
         ''' Right button release event '''
         image_point = self.to_image_point(event.x, event.y)
-        if image_point != []:
+        self.draw_point(image_point[0], image_point[1])
+        self.pil_image = Image.alpha_composite(
+                self.bg_image,
+                self.points_image)
+        self.redraw_image()
+
+        if image_point.size:  # Empty list is False
             title = f"Add point ({image_point[0]:.0f}, {image_point[1]:.0f})?"
         point_name = simpledialog.askstring(title, "Point name (optional)",
                                             parent=self.master)
@@ -257,7 +285,7 @@ class Application(tk.Frame):
         self.drag_flag = True
         self.translate(event.x - self.__old_event.x,
                        event.y - self.__old_event.y)
-        self.redraw_image()  # Redraw image
+        self.redraw_image()
         self.__old_event = event
 
     def mouse_move(self, event):
@@ -266,7 +294,7 @@ class Application(tk.Frame):
             return
 
         image_point = self.to_image_point(event.x, event.y)
-        if image_point != []:
+        if len(image_point) != 0:
             self.label_image_pixel["text"] = \
                 f"({image_point[0]:.2f}, {image_point[1]:.2f})"
         else:
@@ -278,7 +306,7 @@ class Application(tk.Frame):
         if self.pil_image is None:
             return
         self.zoom_fit(self.pil_image.width, self.pil_image.height)
-        self.redraw_image()  # Redraw image
+        self.redraw_image()
 
     def mouse_wheel(self, event):
         '''
